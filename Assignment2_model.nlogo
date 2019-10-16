@@ -83,10 +83,11 @@ to setup
   creating-links                               ; Create links between all infrastructre agents
   set-default-shape aircrafts "airplane"
   set-default-shape infrastructures "circle"
-set interarrival-time-list []                  ; Initialize interarrival-time-list
+  set interarrival-time-list []                  ; Initialize interarrival-time-list
   set travel-time-list []                      ; Initialize travel-time-list
   set waiting-time-list []                     ; Initialize waiting-time-list
   ask infrastructures [find-patches]           ; Helper procedure that finds Xcor and Ycor of infrastructures
+  set deadlock? 0                              ; set initial value for number of deadlocks to 0
   reset-ticks
 end
 
@@ -266,14 +267,14 @@ to update-links-global-1
   find-path
 end
 
-to update-links-global-2
+to update-links-global
   let aircrafts-waiting aircrafts in-radius 30 with [free = "false" and last-infra != nobody]
     if aircrafts-waiting != nobody [
     foreach sort aircrafts-waiting [ aircraft-waiting ->
       let saturated-path nw:weighted-path-to [last-infra] of aircraft-waiting "weight"
       if length saturated-path > 0 [
           ask item 0 saturated-path [
-          set weight weight + [waiting-time] of aircraft-waiting / max [waiting-time] of aircrafts-waiting ;+ (position link-in-path saturated-path + 1 )/ (length saturated-path )
+          set weight weight + [waiting-time] of aircraft-waiting / max [waiting-time] of aircrafts-waiting
         ]
       ]
     ]
@@ -284,7 +285,7 @@ end
 
 to update-weights
   if Weight-updates = "Global" [
-    ask infrastructures [update-links-global-2]
+    ask infrastructures [update-links-global]
   ]
   if Weight-updates = "Local-saturation" [
     ask infrastructures [update-links-local-saturation]
@@ -306,19 +307,28 @@ to perform-auction
   let p_right patch-right-and-ahead 90 1
   let p patch-ahead 0
 
-  let surounding-aircraft aircrafts with [patch-ahead 0 = p_above and patch-ahead 1 = p or patch-ahead 0 = p_down and patch-ahead 1 = p or patch-ahead 0 = p_left and patch-ahead 1 = p or patch-ahead 0 = p_right and patch-ahead 1 = p]
-  if surounding-aircraft != nobody [
+  if patch-type = "waypoint" or patch-type = "runwayconnectionleft" or patch-type = "runwayconnectionright" [
+  let surounding-aircraft aircrafts with [(patch-ahead 0 = p_above and patch-ahead 1 = p) or (patch-ahead 0 = p_down and patch-ahead 1 = p )or (patch-ahead 0 = p_left and patch-ahead 1 = p) or (patch-ahead 0 = p_right and patch-ahead 1 = p)]
+  let aircraft-occupied aircrafts with [patch-ahead 0 = p]
+
+  ifelse ( any? surounding-aircraft and not any? aircraft-occupied) or ( any? surounding-aircraft and any? aircraft-occupied != nobody and [free] of aircraft-occupied = "true" )  [
     ask surounding-aircraft [set free "false" ]
     foreach sort-on [waiting-time] surounding-aircraft [adjacent-aircraft ->
       ifelse max [waiting-time] of surounding-aircraft > 0 [
         ask adjacent-aircraft [set bid 1 + [waiting-time] of adjacent-aircraft / max [waiting-time] of surounding-aircraft]
+
     ]
       [ask adjacent-aircraft [set bid 1]]
     ]
-    let winner  surounding-aircraft with [bid = max [bid] of surounding-aircraft]
-    if count winner > 1 [show winner]
-    ask winner [set free "true"]
+    let winner surounding-aircraft with [bid = max [bid] of surounding-aircraft]
+    ifelse count winner > 1 [
+        let winners winner
+        let winner-final winners with [travel-time = max [travel-time] of winners]
+    ask winner-final [set free "true"]
   ]
+      [ask winner [set free "true"]]
+    ]
+    [ask surounding-aircraft [set free "false"]] ]
 
 end
 ;-------------------------------------------------------------------------------------
@@ -334,10 +344,9 @@ to go
   ask aircrafts [find-other-aircraft]       ; Helper procedure: finds other aircraft close to aircraft to anticipate on these
   ask aircrafts [find-infrastructure-mate]  ; Helper procedure: if aircraft is on same patch as an infrastructure agent is, it becomes its "mate"
   ask aircrafts [find-following-patch]      ; Finds its next patch if aircraft goes one patch forward
+  ask aircrafts [check-free]                ; Checks if the road is free and no other aircraft is currently on it or will be on it in the next tick
   ask infrastructures [perform-auction];
-  ;ask aircrafts [check-free]                ; Checks if the road is free and no other aircraft is currently on it or will be on it in the next tick
   ask aircrafts [check-free-to-enter-runway]
-  ask aircrafts [find-other-aircraft-1-2-3]
   ask aircrafts [normal-taxi-runway]        ; Asks aircraft to taxi, if the road is free to go
   ask aircrafts [check-collision]           ; Checks if a collision is currently happening with another aircraft
   ask aircrafts [check-deadlocks]
@@ -606,7 +615,7 @@ to check-collision                                                   ; Checks fo
   [set collision? false]
   [
   ifelse distance nearest-aircraft < 0.1                             ; If the distance is smaller than 0.1 patch, there is a collision, which is summed
-    [ set collision? true  die set counter-collisions (counter-collisions + 1) wait 2]
+    [ set collision? true  set counter-collisions (counter-collisions + 1) wait 2]
     [ set collision? false ]
   ]
 end
@@ -814,7 +823,7 @@ CHOOSER
 Weight-updates
 Weight-updates
 "Global" "Local-saturation" "Local-number-of-passed-aircraft"
-1
+0
 
 @#$#@#$#@
 ## WHAT IS IT?
