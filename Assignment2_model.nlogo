@@ -29,6 +29,7 @@ aircrafts-own [
   last-infra                                   ; Last infrastructure agent that aircraft has passed
   aircraft-entering-right
   aircraft-entering-left
+  bid
 ]
 
 infrastructures-own [
@@ -292,6 +293,34 @@ to update-weights
     ask infrastructures [update-links-local-number-passed]
   ]
 end
+
+
+;-----------------------------------------------------------------------------------------
+;COORDINATION PROCEDURES
+;-------------------------------------------------------------------------------------------
+;AUCTION
+to perform-auction
+  let p_above patch-ahead 1
+  let p_down patch-ahead -1
+  let p_left patch-left-and-ahead 90 1
+  let p_right patch-right-and-ahead 90 1
+  let p patch-ahead 0
+
+  let surounding-aircraft aircrafts with [patch-ahead 0 = p_above and patch-ahead 1 = p or patch-ahead 0 = p_down and patch-ahead 1 = p or patch-ahead 0 = p_left and patch-ahead 1 = p or patch-ahead 0 = p_right and patch-ahead 1 = p]
+  if surounding-aircraft != nobody [
+    ask surounding-aircraft [set free "false" ]
+    foreach sort-on [waiting-time] surounding-aircraft [adjacent-aircraft ->
+      ifelse max [waiting-time] of surounding-aircraft > 0 [
+        ask adjacent-aircraft [set bid 1 + [waiting-time] of adjacent-aircraft / max [waiting-time] of surounding-aircraft]
+    ]
+      [ask adjacent-aircraft [set bid 1]]
+    ]
+    let winner  surounding-aircraft with [bid = max [bid] of surounding-aircraft]
+    if count winner > 1 [show winner]
+    ask winner [set free "true"]
+  ]
+
+end
 ;-------------------------------------------------------------------------------------
 ; GO: Once everything has been set up correctly, a go command is used to start and continue the simulation
 
@@ -305,8 +334,10 @@ to go
   ask aircrafts [find-other-aircraft]       ; Helper procedure: finds other aircraft close to aircraft to anticipate on these
   ask aircrafts [find-infrastructure-mate]  ; Helper procedure: if aircraft is on same patch as an infrastructure agent is, it becomes its "mate"
   ask aircrafts [find-following-patch]      ; Finds its next patch if aircraft goes one patch forward
-  ask aircrafts [check-free]                ; Checks if the road is free and no other aircraft is currently on it or will be on it in the next tick
+  ask infrastructures [perform-auction];
+  ;ask aircrafts [check-free]                ; Checks if the road is free and no other aircraft is currently on it or will be on it in the next tick
   ask aircrafts [check-free-to-enter-runway]
+  ask aircrafts [find-other-aircraft-1-2-3]
   ask aircrafts [normal-taxi-runway]        ; Asks aircraft to taxi, if the road is free to go
   ask aircrafts [check-collision]           ; Checks if a collision is currently happening with another aircraft
   ask aircrafts [check-deadlocks]
